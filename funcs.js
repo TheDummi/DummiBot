@@ -1,7 +1,8 @@
 const fs = require("fs");
-const got = require("got");
-const Discord = require('discord.js')
-
+const config = require('./data/config.json')
+const Discord = require('discord.js');
+const got = require('got')
+const moment = require('moment');
 const hasteURLs = [
     "https://hst.sh",
     "https://hastebin.com",
@@ -9,24 +10,62 @@ const hasteURLs = [
     "https://haste.tyman.tech"
 ]
 
-function randColor() {
-    var letters = '0123456789ABCDEF';
-    var color = '';
-    for (var i = 0; i < 6; i++) {
-        color += letters[Math.floor(Math.random() * 16)];
+function getRandomNumber(min, max) {
+    if (max == undefined) {
+        max = min
+        min = 0
     }
-    return color;
+    let random = Math.floor(Math.random() * Math.floor(max) + min);
+    return random;
 }
 
 module.exports = {
-    jsonError(err) {
-        let errEmbed = new Discord.MessageEmbed()
-            .setTitle('JSON ERROR')
-            .setColor(0xaa00cc)
-            .setDescription(`\`\`\`json\n${err}\`\`\``)
-        if (err) this.client.channels.cache.get('825128362291757146').send(errEmbed)
+    getTime(date) {
+        return moment(Number(date)).format("H:mm:ss");
     },
-    randomEmojis() {
+    getRandomNumber: getRandomNumber,
+    getRandomColor() {
+        let letters = '0123456789ABCDEF';
+        let color = '';
+        for (let i = 0; i < 6; i++) {
+            color += letters[getRandomNumber(16)];
+        }
+        return color;
+    },
+    getPresence(client, type, name, status) {
+        client.user.setPresence({
+            status: String(status),
+            activities: [{
+                type: String(type).toUpperCase(),
+                name: String(name),
+                url: "https://www.youtube.com/watch?v=ciqUEV9F0OY&list=RDRbslF7GISf0&index=28"
+            }],
+
+        })
+    },
+    getArray(args) {
+        let tempArray = [];
+        for (const data in destiny) {
+            if (destiny[data].tag == args) {
+                tempArray.push(destiny[data].name)
+            }
+            else continue;
+        }
+        return tempArray;
+    },
+    getRandomUser(client) {
+        let users = client.users.cache;
+        let usersArray = [];
+        users.forEach(user => {
+            if (user.bot) return;
+            else {
+                usersArray.push(user.username)
+            }
+        })
+        let randomUser = usersArray[getRandomNumber(usersArray.length)];
+        return randomUser;
+    },
+    getRandomEmojis(args) {
         let choices = new Discord.Collection()
         let choicesLeft = message.guild.emojis.cache.filter(e => e.animated)
         let curChoice = "";
@@ -37,6 +76,14 @@ module.exports = {
         }
         return choices
     },
+    getShuffleArray(array) {
+        let shuffled = [];
+        array = Array.from(array);
+        while (array.length > 0) {
+            shuffled.push(array.splice(randomNumber(array.length), 1)[0]);
+        }
+        return shuffled;
+    },
     getUptime(client) {
         let totalSeconds = (client.uptime / 1000);
         let days = Math.floor(totalSeconds / 86400);
@@ -45,20 +92,11 @@ module.exports = {
         totalSeconds %= 3600;
         let minutes = Math.floor(totalSeconds / 60);
         let seconds = Math.floor(totalSeconds % 60);
-        let uptime = `${days} days, ${hours} hours, ${minutes} minutes and ${seconds} seconds`;
-        let noSecUptime = `${days} days, ${hours} hours and ${minutes} minutes`;
+        let uptime = `${days}d, ${hours}h, ${minutes}m, ${seconds}s`;
+        let noSecUptime = `${days}d, ${hours}h, ${minutes}m`;
         return { uptime: uptime, noSecUptime: noSecUptime };
     },
-    /*getPrefix(message) {
-        let p = "~"
-        var data = fs.readFileSync("data/serverData.json");
-        const json = JSON.parse(data);
-        if (json.prefixes[String(message.guild.id)]) {
-            p = json.prefixes[String(message.guild.id)]
-        }
-        return p
-    },*/
-    async haste(text) {
+    async getHaste(text) {
         for (const url of hasteURLs) {
             try {
                 const resp = await got.post(url + "/documents", {
@@ -72,14 +110,50 @@ module.exports = {
         }
         throw new Error("Haste failure")
     },
-    capitalize(name) {
+    getCapitalize(name) {
         name = name.toLowerCase();
         return name.charAt(0).toUpperCase() + name.slice(1)
     },
-    sleep(ms) {
+    getCommandError(action, error) {
+        function getErrorCode() {
+            let code = 0
+            if (error.name == 'TypeError') return code = 1;
+            if (error.name == 'DiscordAPIError') return code = 3;
+            if (error.name == 'ReferenceError') return code = 2;
+            if (error.code != undefined) return error.code;
+            else return code;
+        }
+        let channels = config.LogsChannel;
+        let embed = new Discord.MessageEmbed()
+            .setTitle("ERROR")
+            .setDescription(`\`\`\`js\n${error.stack}\`\`\``)
+            .setColor(config.color)
+            .addField('Extra info', `Server: ${action.guild.name}\nChannel: ${action.channel}\nUser: ${action.author == undefined ? action.user.tag : action.author.tag}\nCommand: ${String(action).length < 200 ? action : String(action).slice(200)}`, true)
+        action.client.channels.fetch(channels[0])
+            .then(channel => {
+                channel.send({ embeds: [embed] })
+                try {
+                    let errorEmbed = new Discord.MessageEmbed()
+                        .setTitle('Something went wrong')
+                        .setColor(config.color)
+                        .setDescription(`Something went wrong with \`${action.commandName == undefined ? action.content.slice(1).split(/ +/)[0] : action.commandName}\`. This error got logged in my [support server](${config.invite}).\n\nCode: ${getErrorCode()}`)
+                    action.reply({ embeds: [errorEmbed], ephemeral: true })
+                }
+                catch { }
+            }).catch((err) => {
+                console.error(err, error)
+            })
+        action.client.channels.fetch(channels[1])
+            .then(channel => {
+                channel.send({ embeds: [embed] })
+            }).catch((err) => {
+                console.error(err, error)
+            })
+    },
+    getDelay(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
     },
-    validURL(str) {
+    getValidURL(str) {
         var pattern = new RegExp('^(https?:\\/\\/)?' + // protocol
             '((([a-z\\d]([a-z\\d-]*[a-z\\d])*)\\.)+[a-z]{2,}|' + // domain name
             '((\\d{1,3}\\.){3}\\d{1,3}))' + // OR ip (v4) address
@@ -88,24 +162,13 @@ module.exports = {
             '(\\#[-a-z\\d_]*)?$', 'i'); // fragment locator
         return !!pattern.test(str);
     },
-    getReactions(message) {
-        var data = fs.readFileSync("data.json").toString();
-        const json = JSON.parse(data);
-        if (json.reactions.includes(message.guild.id)) {
-            return true
-        }
-        return false
-    },
-    //const {randColor} = require("../funcs.js")
-    randColor: randColor,
-    // const {paginate} = require("../funcs.js")
-    async paginate(message, embeds) {
+    async getPaginate(message, embeds) {
         embeds.forEach((e, i) => {
             embeds[i] = embeds[i].setFooter(`Page ${i + 1}/${embeds.length} | Click ❔ for help!`)
         })
         let curPage = 0;
         if ((typeof embeds) !== "object") return
-        const m = await message.channel.send(embeds[curPage])
+        const m = await message.util.reply("Use the emotes to navigate.", embeds[curPage])
         m.react("⏪")
         m.react("◀")
         m.react("⏹")
@@ -155,8 +218,9 @@ module.exports = {
             }
             else if (r.emoji.toString() == "⏹") {
                 clearTimeout(timeout)
-                await m.edit("Command closed by user.", { embed: null })
+                m.delete()
                 try {
+                    await m.edit("Command closed by user.", { embed: null })
                     await m.reactions.removeAll()
                 }
                 catch { }
@@ -219,6 +283,7 @@ module.exports = {
                 else {
                     await m.edit(embed4)
                 }
+
             }
         })
     }
